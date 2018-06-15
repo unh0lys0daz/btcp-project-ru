@@ -19,7 +19,7 @@ destination_ip = "127.0.0.1"
 destination_port = 9001
 
 #bTCP header
-header_format = "IHHBBHI"
+header_format = "!IHHBBHI"
 bTCP_header = pack(header_format, randint(0,100), syn_nr, ack_nr, flags, win, data_len, checks)
 bTCP_payload = ""
 udp_payload = bTCP_header
@@ -43,30 +43,42 @@ def connect_btcp(sock):
     header_ack = make_header(str_id, 0, 0, ACK, 1000, 0)
     sock.sendto(header_syn + payload, (destination_ip, destination_port))
     try:
-        data = sock.recv(1008)
+        data = sock.recv(1016)
     except:
-        return False
+        return 0
     (str_id_recv, syn_nr_r, ack_nr_r, flags_r, win_r, data_len_r, checks_r) = unpack("IHHBBHI1000x",data)
     if str_id_recv != str_id:
-        return False
+        return 0
     if (flags_r & RST) != 0:
-        return False
+        return 0
     if (flags_r & (SYN | ACK)) != (SYN | ACK):
-        return False
-    sock.sendto(header_ack + payload, (destination_ip, destination_port))
-    return True
+        return 0
+    return str_id
 
 def make_payload(buf):
     size = 1000 - len(buf)
     payload = buf + ("\x00" * size).encode('utf8')
     return payload
 
-def send_file(sock, filename):
+def send_file(sock, filename, str_id):
     fh = open(filename)
     syn_nr = 0
     ack_nr = 0
-    str_id = randint(1,1000)
     while fh:
         buf = fh.read(1000)
         payload = make_payload(buf)
-        header = make_header(str_id, syn_nr, 0,
+        header = make_header(str_id, syn_nr, ack_nr, ACK, 1000, len(buf))
+        sock.sendto(header + payload, (destination_ip, destination_port))
+        try:
+            data = sock.recv(1008)
+        except:
+            data = None
+        if not data:
+            continue
+        (str_id_recv, syn_nr_r, ack_nr_r, flags_r, win_r, data_len_r, checks_r) = unpack("IHHBBHI1000x",data)
+        if ack_nr_r == (syn_nr + 1000):
+            syn_nr += 1000
+            ack_nr += 1
+        else:
+            fh.seek(-len(buf), 1)
+
